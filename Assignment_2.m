@@ -9,13 +9,9 @@
 % Task 1: VaR and Expected Shortfall
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%[S, headers, raw] = xlsread("timeSeries.xlsx");
-dates = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 1 and 2', 'Range', 'B3:B1649');
-tradeClose = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 1 and 2', 'Range', 'C3:Q1649');
+[S, headers, raw] = xlsread("timeSeries.xlsx");
 
-tradeClose = flipud(tradeClose);
 portfolio_value = 10000000;
-
 
 n = 15; % There are 15 different stocks in the portfolio
 omega = 1 / n;
@@ -34,14 +30,9 @@ stocks = 15;
 %% Subtask 1 (a): Calculation of Value at Risk
 
 % Calculating returns matrix for all stocks from t = 1 ... T + 1
-
-R = zeros(prices - 1, stocks);
-logR = zeros(prices - 1, stocks);
-
 for j = 1:stocks
     for i = prices:-1:2
-        R(i-1, j) = ((tradeClose((i-1), j)) - tradeClose(i, j)) / tradeClose(i, j);
-        logR(i-1,j) = log(tradeClose(i-1,j)/tradeClose(i,j));
+        R(i-1, j) = ((S((i-1), j+1)) - S(i, j+1)) / S(i, j+1);
     end
 end
 
@@ -51,9 +42,14 @@ portfolio_volatiliy = sqrt(transpose(omega_vector) * C * omega_vector);
 
 VaR_95 = norminv(confidence_level_95) * portfolio_volatiliy * portfolio_value;
 
-Var_975 = norminv(confidence_level_975) * portfolio_volatiliy * portfolio_value;
+VaR_975 = norminv(confidence_level_975) * portfolio_volatiliy * portfolio_value;
 
 VaR_99 = norminv(confidence_level_99) * portfolio_volatiliy * portfolio_value;
+
+% Output in Command Window
+fprintf('VaR at %d%% confidence level: SEK %.2f\n', confidence_level_95 * 100, VaR_95);
+fprintf('VaR at %.1f%% confidence level: SEK %.2f\n', confidence_level_975 * 100, VaR_975);
+fprintf('VaR at %d%% confidence level: SEK %.2f\n', confidence_level_99 * 100, VaR_99);
 
 %% Subtask 1 (b): Calculation of Relative VaR
 
@@ -65,114 +61,69 @@ lambda = 0.94;
 
 portfolio_volatility_EWMA = zeros(size(portfolio_returns_logarithmic)); % Index 1 ger portfolio return för T = 1646, index 1646 ger för t = 1
 
-% 
-% % Calculating EWMA volatility for each time step
-% for i = length(portfolio_returns_logarithmic):-1:1
-%     if i == 1646 % t = 1
-%         portfolio_volatility_EWMA(i) = portfolio_returns_logarithmic(i)^2;
-%     else
-%         portfolio_volatility_EWMA(i) = lambda * portfolio_volatility_EWMA(i+1) + (1 - lambda) * portfolio_returns_logarithmic(i+1)^2;
-%     end
-% end
-% 
-% relative_VaR_95 = zeros(1144, 1);
-% relative_VaR_99 = zeros(1144, 1);
-% 
-% 
-% % Using the formula (1) on page 2, on assignment 2
-% for i = (1646-502):-1:1
-% relative_VaR_95(i) = norminv(confidence_level_95) * portfolio_volatility_EWMA(i);
-% end
-% 
-% for i = (1646-502):-1:1
-% relative_VaR_99(i) = norminv(confidence_level_99) * portfolio_volatility_EWMA(i);
-% end
-% 
-% % Måste justera portfoliovikterna?
-% 
+
+% Calculating EWMA volatility for each time step
+for i = length(portfolio_returns_logarithmic):-1:1
+    if i == 1646 % t = 1
+        portfolio_volatility_EWMA(i) = portfolio_returns_logarithmic(i)^2;
+    else
+        portfolio_volatility_EWMA(i) = lambda * portfolio_volatility_EWMA(i+1) + (1 - lambda) * portfolio_returns_logarithmic(i+1)^2;
+    end
+end
+
+relative_VaR_95 = zeros(1144, 1);
+relative_VaR_99 = zeros(1144, 1);
+
+
+% Using the formula (1) on page 2, on assignment 2
+for i = (1646-502):-1:1
+relative_VaR_95(i) = norminv(confidence_level_95) * portfolio_volatility_EWMA(i);
+end
+
+for i = (1646-502):-1:1
+relative_VaR_99(i) = norminv(confidence_level_99) * portfolio_volatility_EWMA(i);
+end
+
+% Måste justera portfoliovikterna?
+
 % updatedVaR_99 = norminv(confidence_level_99) * 0.000550568808026982 * portfolio_value;
 
-%Static equally weighted portfolio
 
-% Initialize matrices
-LogReturnsPortfolio = zeros(prices, 1);
-PortfolioValue = zeros(prices, 1);
-
-% Calculate portfolio returns
-for t = prices:-1:2
-    % Calculate portfolio value
-    PortfolioValue(t) = sum(tradeClose(t, :) / stocks);
-
-    % Calculate simple returns
-    PortfolioReturn = (PortfolioValue(t) - PortfolioValue(t-1)) / PortfolioValue(t-1);
-
-    % Calculate log returns
-    LogReturnsPortfolio(t) = log(1 + PortfolioReturn);
-end
+%% Subtask 1 (c): Calculation of Relative VaR and Expected Shortfall
 
 
-for i =1:prices
-    LogReturnsPortfolio(i,1)= log(1 +(sum(R(1, :)))/stocks);
-end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Task 2: Extreme Value Theory
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%Portfolio variances
-VarianceEWMA = zeros(prices,1);
-VarianceEWMA(2,1) = 0;
-%VarianceEWMA(2,1) = LogReturnsPortfolio(2,1)^2;
+%% Subtask 2 (a): Estimating Parameters
 
-for i = 3: prices
-    VarianceEWMA(i,1)= VarianceEWMA(i-1,1)*lambda + (1-lambda)*LogReturnsPortfolio(i-1,1)^2;
-end
+% Sorting the portfolio returns in ascending order
+sortedPortfolioReturns = sort(transpose(portfolio_returns), 'ascend');
 
-%Relative VaR
-for i=1: prices-502
-    VaR_rel95_1v(i,1) = (1 -exp(norminv(0.95)*sqrt(VarianceEWMA(i+502,1))));
-end
+% Calculating number of observations which fall in the 95th percentile
+n = 1646;
+nu = round(0.05 * n);
 
+% Calculating the threshold level, u (95th percentile of the loss)
+u = sortedPortfolioReturns(nu, 1);
 
-% %% Subtask 1 (c): Calculation of Relative VaR and Expected Shortfall
-% 
-% 
-% % omega = alpha(i) / portfolio_value;
-% % 
-% % omega_vector = ones(15, 1) * omega(i);
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% 
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% % Task 2: Model Training
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 
-% %% Subtask 2.1: Split Data
-% % Split the data into training and testing sets.
-% [train_data, test_data] = splitData(cleaned_data);
-% 
-% %% Subtask 2.2: Train Model
-% % Train a machine learning model using the training data.
-% model = trainModel(train_data);
-% 
-% %% Subtask 2.3: Evaluate Model
-% % Evaluate the model using the testing data.
-% accuracy = evaluateModel(model, test_data);
-% 
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% % Task 3: Results Analysis
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% 
-% %% Subtask 3.1: Display Results
-% % Display the accuracy of the trained model.
-% disp(['Model Accuracy: ' num2str(accuracy)]);
-% 
-% %% Subtask 3.2: Visualize Results
-% % Visualize the results using plots or other visualization techniques.
-% visualizeResults(model, test_data);
+% Calculating y for the 81 biggest losses in the distribution
+y = sortedPortfolioReturns(1:nu-1) - u;
+
+% Definining the log likelihood function
+f = @(params) -sum(log(1/params(1))*(1+params(2)*(y/params(1))).^((-1/params(2))-1));
+
+% Start values for ksi and beta
+beta = 0.15;
+ksi = 0.4;
+params = [beta; ksi];
+
+% Optimizing the parameters
+paramsOptimized = fmincon(f, params);
+
+% Calculating VaR with 95% confidence level based on the optimized params
+c = 0.99;
+VaR_EVT =   u+(paramsOptimized(1)/paramsOptimized(2))*((n/(nu-1)*(1-c))^(-params(2))-1);
+
+%% Subtask 2 (b): 
