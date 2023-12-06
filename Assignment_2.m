@@ -51,6 +51,7 @@ fprintf('VaR at %d%% confidence level: SEK %.2f\n', confidence_level_95 * 100, V
 fprintf('VaR at %.1f%% confidence level: SEK %.2f\n', confidence_level_975 * 100, VaR_975);
 fprintf('VaR at %d%% confidence level: SEK %.2f\n', confidence_level_99 * 100, VaR_99);
 
+
 %% Subtask 1 (b): Calculation of Relative VaR
 
 portfolio_returns = transpose(omega_vector) * transpose(R); % Index 1 ger portfolio return för T = 1646, index 1646 ger för t = 1
@@ -126,4 +127,190 @@ paramsOptimized = fmincon(f, params);
 c = 0.99;
 VaR_EVT =   u+(paramsOptimized(1)/paramsOptimized(2))*((n/(nu-1)*(1-c))^(-params(2))-1);
 
-%% Subtask 2 (b): 
+fprintf('Optimized beta: %f\n', paramsOptimized(1,1));
+fprintf('Optimized ksi: %f\n', paramsOptimized(2,1));
+
+%% Subtask 2 (b): Estimating Parameters for a Volatile Period (approx. 5 years of data)
+
+% Calculating Logarithmic Returns for each Stock
+% and the average for the complete portfolio
+dates = 1647;
+stocks = 15;
+
+prices = S(:, 2:end);
+pricesInOrder = flipud(prices); % Row 1 = first date, Row 1646 = today
+
+logReturns = zeros(dates-1, stocks);
+
+for j = 1:stocks
+    for i = 1:(dates-1)
+        logReturns(i, j) = log(pricesInOrder(i + 1, j) / pricesInOrder(i, j));
+    end
+end
+
+% Check this out - the time period depends whether we flip it or not
+%logReturnsPortfolio = flipud(sum(logReturns, 2) ./ stocks);
+
+logReturnsPortfolio = sum(logReturns, 2) ./ stocks;
+
+logAverageReturnPortfolio = mean(logReturnsPortfolio);
+
+% Finding the 5-year period with the highest average volatility
+
+% Calculating the number of weeks in a 5 year period
+yearsInWeeks = 5 * 52;
+
+% Creating a new vector with the sample std dev for each time window
+volatilitySampleVariance = zeros((dates-1)-yearsInWeeks, 1);
+
+% Calculating the sample standard deviation for 5 year time windows
+% The outer for loop iterates over all possible 5 year periods
+
+for i = 1:((dates-1)-yearsInWeeks)
+    avgSqVol = 0;
+    for j = 1:yearsInWeeks
+        avgSqVol = avgSqVol + ((logReturnsPortfolio((i+j), 1) - logAverageReturnPortfolio)^2);
+    end
+    volatilitySampleVariance(i) = sqrt(avgSqVol / (yearsInWeeks-1));
+end
+
+% Finding the period with highest average volatility
+% and the corresponding index
+[maximumVolatility, timeSlot] = max(volatilitySampleVariance);
+
+timePeriodMaxVol = [dates-timeSlot-yearsInWeeks, dates-timeSlot];
+
+% Estimating the parameters
+portfolioReturns = transpose(portfolio_returns);
+portfolioReturnsWithHighestVolatility = portfolioReturns(timePeriodMaxVol(1):timePeriodMaxVol(2));
+portfolioReturnsWithHighestVolatilitySorted = sort(portfolioReturnsWithHighestVolatility, 'ascend');
+
+
+% Calculating the threshold level in the 95th percentile
+nWithHighestVolatility = 0.05 * yearsInWeeks;
+uWithHighestVolatility = portfolioReturnsWithHighestVolatilitySorted(nWithHighestVolatility, 1);
+
+% Calculating y for the 13 biggest losses in the distribution 
+% of the time window
+yWithHighestVolatility = portfolioReturnsWithHighestVolatilitySorted(1:nWithHighestVolatility-1) - u;
+
+% Definining the log likelihood function
+fWithHighestVolatility = @(params) -sum(log(1/params(1))*(1+params(2)*(yWithHighestVolatility/params(1))).^((-1/params(2))-1));
+
+% Start values for ksi and beta
+beta = 0.15;
+ksi = 0.4;
+params = [beta; ksi];
+
+% Optimizing the parameters
+paramsOptimizedWithHighestVolatility = fmincon(fWithHighestVolatility, params);
+
+fprintf('Optimized beta (5-year highest vol): %f\n', paramsOptimizedWithHighestVolatility(1,1));
+fprintf('Optimized ksi (5-year highest vol) %f\n', paramsOptimizedWithHighestVolatility(2,1));
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Task 3: Risk Factor Mapping
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Importing risk factors from March 5th, 2008 to January 10th, 2022 
+SPX = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 3', 'Range', 'C4:C3429');
+VIX = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 3', 'Range', 'D4:D3429');
+USD3MFSR = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 3', 'Range', 'E4:E3429');
+
+% Calculating time to maturity for the two different option contract types
+timeToMaturity_MarchContract = days252bus('2022-01-10', '2022-03-18');
+timeToMaturity_AprilContract = days252bus('2022-01-10', '2022-04-15');
+
+% Black-Scholes model requires an annualized continuous compounded rate
+
+annualRiskFreeRate = (log(1+USD3MFSR(1)*(3/12))) / (3/12);
+
+
+% Calculating the Option Prices at t = T +1 with S&P500 as underlying
+% Parameters from timeSeries.xlsk. Implied volatility is mean of bid, ask
+Mar22Call = BlackScholes(SPX(1), 4700, 15.77, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 'call');
+Mar22Put = BlackScholes(SPX(1), 4600, 18.28, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 'put');
+Apr22Call = BlackScholes(SPX(1), 4750, 16.25, timeToMaturity_AprilContract, 0, annualRiskFreeRate, 'call');
+
+% Calculating the Gradient Vectors, using los greekazos
+DeltaMar22Call = Delta(SPX(1), 4700, 15.77, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 0.05, 'call');
+DeltaMar22Put = Delta(SPX(1), 4600, 18.28, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 0.05, 'put');
+DeltaApr22Call = Delta(SPX(1), 4750, 16.25, timeToMaturity_AprilContract, 0, annualRiskFreeRate, 0.05, 'call');
+
+VegaMar22Call = Vega(SPX(1), 4700, 15.77, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 0.05);
+VegaMar22Put = Vega(SPX(1), 4600, 18.28, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 0.05);
+VegaApr22Call = Vega(SPX(1), 4750, 16.25, timeToMaturity_AprilContract, 0, annualRiskFreeRate, 0.05);
+
+RhoMar22Call = Rho(SPX(1), 4700, 15.77, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 'call');
+RhoMar22Put = Rho(SPX(1), 4600, 18.28, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 'put');
+RhoApr22Call = Rho(SPX(1), 4750, 16.25, timeToMaturity_AprilContract, 0, annualRiskFreeRate, 'call');
+
+
+gradientMar22Call = [DeltaMar22Call, VegaMar22Call, RhoMar22Call];
+gradientMar22Put = [DeltaMar22Put, VegaMar22Put, RhoMar22Put];
+gradientApr22Call = [DeltaApr22Call, VegaApr22Call, RhoApr22Call];
+
+
+% Function for Black-Scholes. 
+function res = BlackScholes(S, K, volatility, T, t, rate, type)
+    d = dBSM(S, K, volatility, T, t, rate);
+    if (type == "call")
+        res = S*normcdf(d(1)) - K*exp(-rate*(T-t))*normcdf(d(2));
+    elseif (type == "put")
+        res = K*exp(-rate*(T-t))*normcdf(-d(2)) - S*normcdf(-d(1));
+    end
+end
+
+% Function for calculating Delta
+function res = Delta(S, K, volatility, T, t, rate, q, type)
+    d = dBSM(S, K, volatility, T, t, rate);
+    if (type == "call") 
+        res = exp(-q*(T-t))*normcdf(d(1));
+    elseif (type == "put")
+        res = exp(-q*(T-t))*(normcdf(d(1)) - 1); % Milken Finance Institute kommer formeln ifrån
+    end
+end
+
+% Funtion for calculating vega
+function res = Vega(S, K, volatility, T, t, rate, q)
+    d = dBSM(S, K, volatility, T, t, rate);
+    res = S*exp(-q*(T-t))*normcdf(d(1))*sqrt(T-t);
+end
+
+% Function for calculating rho
+function res = Rho(S, K, volatility, T, t, rate, type)
+    d = dBSM(S, K, volatility, T, t, rate);
+    if (type == "call")
+        res = K*(T-t)*exp(-rate*(T-t))*normcdf(d(2));
+    elseif (type == "put")
+        res = -K*(T-t)*exp(-rate*(T-t))*normcdf(-d(2));
+    end
+end
+
+
+% Function for calculating d1 and d2
+function res = dBSM(S, K, volatility, T, t, rate)
+    d1 = (log(S/K) + (rate+((volatility)^2)/2)*(T-t)) / (volatility * sqrt(T-t));
+    d2 = d1 - (volatility*sqrt(T-t));
+    res = [d1, d2];
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
