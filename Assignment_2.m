@@ -1,97 +1,211 @@
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% File: Assignment_2.m
-% Author: Vilmer Gimbringer & Gabriel Spjuth
-% Date: December 3, 2023
-% Description: Assignment 2 in Financial Risk Management.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+dates = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 1 and 2', 'Range', 'B3:B1649');
+tradeClose = readmatrix('timeSeries.xlsx', 'Sheet', 'Problem 1 and 2', 'Range', 'C3:Q1649');
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Task 1: VaR and Expected Shortfall
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-[S, headers, raw] = xlsread("timeSeries.xlsx");
-
+tradeClose = flipud(tradeClose);
 portfolio_value = 10000000;
 
-n = 15; % There are 15 different stocks in the portfolio
-omega = 1 / n;
-omega_vector = ones(15, 1) * omega;
-
-t = 1/52; % Time of observed data. Assuming 52 trading weeks per year.
-confidence_level_95 = 0.95;
-confidence_level_975 = 0.975;
-confidence_level_99 = 0.99;
-
-R = zeros(1646, 15);
-
-prices = 1647;
+%portfolio_value = 10;
+T = length(dates);
 stocks = 15;
+n = 15; % There are 15 different stocks in the portfolio
+omega = zeros(1, n);
+omega(1,:) = 1 / n;
+lambda = 0.94;
+
+
+% Calculating returns matrix for all stocks from t = 1 ... T + 1
+
+R = zeros(T - 1, stocks);
+logR = zeros(T - 1, stocks);
+
+for j = 1:stocks
+    for i = 1 : T-1
+        R(i, j) = ((tradeClose((i+1), j)) - tradeClose(i, j)) / tradeClose(i, j);
+        logR(i,j) = log(tradeClose(i+1,j)/tradeClose(i,j));
+    end
+end
+R = flipud(R);
+Rp = sum(R, 2)./stocks;
 
 %% Subtask 1 (a): Calculation of Value at Risk
 
-% Calculating returns matrix for all stocks from t = 1 ... T + 1
-for j = 1:stocks
-    for i = prices:-1:2
-        R(i-1, j) = ((S((i-1), j+1)) - S(i, j+1)) / S(i, j+1);
-    end
-end
-
 C = cov(R);
+sigma= sqrt(omega*C*omega');
 
-portfolio_volatiliy = sqrt(transpose(omega_vector) * C * omega_vector);
-
-VaR_95 = norminv(confidence_level_95) * portfolio_volatiliy * portfolio_value;
-
-VaR_975 = norminv(confidence_level_975) * portfolio_volatiliy * portfolio_value;
-
-VaR_99 = norminv(confidence_level_99) * portfolio_volatiliy * portfolio_value;
-
-% Output in Command Window
-fprintf('VaR at %d%% confidence level: SEK %.2f\n', confidence_level_95 * 100, VaR_95);
-fprintf('VaR at %.1f%% confidence level: SEK %.2f\n', confidence_level_975 * 100, VaR_975);
-fprintf('VaR at %d%% confidence level: SEK %.2f\n', confidence_level_99 * 100, VaR_99);
+VaR95 = norminv(0.95)*sigma*portfolio_value;
+VaR975 = norminv(0.975)*sigma*portfolio_value;
+VaR99 = norminv(0.99)*sigma*portfolio_value;
 
 
-%% Subtask 1 (b): Calculation of Relative VaR
 
-portfolio_returns = transpose(omega_vector) * transpose(R); % Index 1 ger portfolio return för T = 1646, index 1646 ger för t = 1
+%% Subtask 1(b) %% 
 
-portfolio_returns_logarithmic = log(1+portfolio_returns); % Index 1 ger portfolio return för T = 1646, index 1646 ger för t = 1
+% Rp = zeros(T-1,1);
+% LogRp= zeros(T-1,1);
 
-lambda = 0.94;
+% Calculate portfolio returns
 
-portfolio_volatility_EWMA = zeros(size(portfolio_returns_logarithmic)); % Index 1 ger portfolio return för T = 1646, index 1646 ger för t = 1
+ 
+   LogRp = log(1+ Rp);
+   
+    %Portfolio variance with EWMA
+    VarianceEWMA = zeros(T-501,1);
+    VarianceEWMA(1,1) = LogRp(1,1)^2;
 
-
-% Calculating EWMA volatility for each time step
-for i = length(portfolio_returns_logarithmic):-1:1
-    if i == 1646 % t = 1
-        portfolio_volatility_EWMA(i) = portfolio_returns_logarithmic(i)^2;
-    else
-        portfolio_volatility_EWMA(i) = lambda * portfolio_volatility_EWMA(i+1) + (1 - lambda) * portfolio_returns_logarithmic(i+1)^2;
+    for t = 2 : T-1
+        VarianceEWMA(t,1) = VarianceEWMA(t-1,1)*lambda + (1-lambda)*LogRp(t-1,1)^2;
     end
-end
 
-relative_VaR_95 = zeros(1144, 1);
-relative_VaR_99 = zeros(1144, 1);
+    %relative VaR with EWMA
+relative_VaR_95_1v = zeros(1146, 1);
+relative_VaR_99_1v = zeros(1146, 1);
+
+    for t = 502 : T-1
+        relative_VaR_95_1v(t-501,1) = (1 - exp(- norminv(0.95) * sqrt(VarianceEWMA(t, 1))));
+        relative_VaR_99_1v(t-501,1) = (1 - exp(- norminv(0.99) * sqrt(VarianceEWMA(t, 1))));
+    end
 
 
-% Using the formula (1) on page 2, on assignment 2
-for i = (1646-502):-1:1
-relative_VaR_95(i) = norminv(confidence_level_95) * portfolio_volatility_EWMA(i);
-end
-
-for i = (1646-502):-1:1
-relative_VaR_99(i) = norminv(confidence_level_99) * portfolio_volatility_EWMA(i);
-end
-
-% Måste justera portfoliovikterna?
-
-% updatedVaR_99 = norminv(confidence_level_99) * 0.000550568808026982 * portfolio_value;
+% Plotting for Subtask 1(b)
+figure;
+subplot(2, 1, 1);
+plot(relative_VaR_95_1v, 'LineWidth', 1.5, 'DisplayName', 'Relative VaR (95%)');
+hold on;
+plot(relative_VaR_99_1v, 'LineWidth', 1.5, 'DisplayName', 'Relative VaR (99%)');
+title('Subtask 1(b): Relative VaR Estimates');
+legend('show');
+hold off;
 
 
 %% Subtask 1 (c): Calculation of Relative VaR and Expected Shortfall
 
+
+% Initialize arrays for relative VaR and Expected Shortfall
+Histrelative_VaR_95_1v = zeros(T - 501, 1);
+Histrelative_VaR_99_1v = zeros(T - 501, 1);
+expected_shortfall_1v = zeros(T - 501, 1);
+
+% Historical simulation with rolling window
+for t = 502:T-1
+    % Extract the historical portfolio returns for the rolling window
+    historical_returns = LogRp(t-499:t, 1);
+
+    % Calculate portfolio variance and volatility based on the rolling window
+    rolling_variance = var(historical_returns);
+    rolling_volatility = sqrt(rolling_variance);
+
+    % Calculate relative VaR for t+1 based on the rolling window
+    Histrelative_VaR_95_1v(t-501, 1) = (1 - exp(-norminv(0.95) * rolling_volatility));
+
+    % Calculate relative VaR for t+1 based on the rolling window
+    Histrelative_VaR_99_1v(t-501, 1) = (1 - exp(-norminv(0.99) * rolling_volatility));
+
+    % Calculate Expected Shortfall for t+1 based on the rolling window
+    exceedances = historical_returns(historical_returns < -Histrelative_VaR_95_1v(t-501, 1));
+    expected_shortfall_1v(t-501, 1) = -mean(exceedances);
+end
+
+% Plotting for Subtask 1(c)
+figure;
+subplot(2, 1, 1);
+plot(Histrelative_VaR_95_1v, 'LineWidth', 1.5, 'DisplayName', 'Relative VaR (95%)');
+hold on;
+plot(Histrelative_VaR_99_1v, 'LineWidth', 1.5, 'DisplayName', 'Relative VaR (99%)');
+title('Subtask 1(c): Relative VaR Estimates');
+legend('show');
+hold off;
+
+subplot(2, 1, 2);
+plot(expected_shortfall_1v, 'LineWidth', 1.5, 'DisplayName', 'Expected Shortfall');
+title('Subtask 1(c): Expected Shortfall Estimates');
+legend('show');
+
+
+%% Subtask 1 (d) %%
+
+
+% Initialize arrays for relative VaR and Expected Shortfall
+HW_relative_VaR_95_1v = zeros(T - 501, 1);
+HW_relative_VaR_99_1v = zeros(T - 501, 1);
+
+% Initialize the EWMA volatility
+ewma_volatility = zeros(T - 1, 1);
+
+% Initialize the first value of EWMA volatility using the corrected formula
+R_bar = mean(LogRp(1:20, 1));
+ewma_volatility(1, 1) = (1/19) * sum((LogRp(1:20, 1) - R_bar).^2);
+
+% Historical simulation with rolling window
+for t = 501:T-1
+    % Extract the historical portfolio returns for the rolling window
+    historical_returns = LogRp(t-499:t, 1);
+
+   % Estimate portfolio volatility using EWMA
+    ewma_volatility(t, 1) = 0.94 * ewma_volatility(t-1, 1) + (1 - 0.94) * historical_returns(end)^2;
+
+    % Calculate relative VaR for t+1 based on the estimated volatility
+    HW_relative_VaR_95_1v(t-500, 1) = (1 - exp( -norminv(0.95) * sqrt(ewma_volatility(t, 1))));
+
+    % Calculate relative VaR for t+1 based on the estimated volatility
+    HW_relative_VaR_99_1v(t-500, 1) = (1 - exp( -norminv(0.99) * sqrt(ewma_volatility(t, 1))));
+
+end
+% 
+%  for t = 2 : T-1
+%         VarianceEWMA(t,1) = VarianceEWMA(t-1,1)*lambda + (1-lambda)*LogRp(t-1,1)^2;
+%     end
+
+% Plotting for Subtask 1(d)
+figure;
+subplot(2, 1, 1);
+plot(HW_relative_VaR_95_1v, 'LineWidth', 1.5, 'DisplayName', 'Relative VaR (95%)');
+hold on;
+plot(HW_relative_VaR_99_1v, 'LineWidth', 1.5, 'DisplayName', 'Relative VaR (99%)');
+title('Subtask 1(d): Relative VaR Estimates');
+legend('show');
+hold off;
+
+
+
+%% Subtask 1 (e) %%
+
+subtaskB_FRT = FailureRateTest(Rp, (relative_VaR_95_1v), 0.05, 0.95);
+subtaskB2_FRT = FailureRateTest(Rp, (relative_VaR_99_1v), 0.01, 0.99);
+subtaskC_FRT = FailureRateTest(Rp, (Histrelative_VaR_95_1v), 0.05, 0.95);
+subtaskC2_FRT = FailureRateTest(Rp, (Histrelative_VaR_99_1v), 0.01, 0.99);
+subtaskD_FRT = FailureRateTest(Rp, (HW_relative_VaR_99_1v), 0.05, 0.95);
+subtaskD2_FRT = FailureRateTest(Rp, (HW_relative_VaR_99_1v), 0.01, 0.99);
+
+% Display results for Subtask 1(e)
+disp('Results for Subtask 1(e): Failure Rate Tests');
+disp(['Subtask B (95%): ' num2str(subtaskB_FRT)]);
+disp(['Subtask B (99%): ' num2str(subtaskB2_FRT)]);
+disp(['Subtask C (95%): ' num2str(subtaskC_FRT)]);
+disp(['Subtask C (99%): ' num2str(subtaskC2_FRT)]);
+disp(['Subtask D (95%): ' num2str(subtaskD_FRT)]);
+disp(['Subtask D (99%): ' num2str(subtaskD2_FRT)]);
+
+%% Subtask 1 (f) %%
+
+SDTestsubtaskB = SerBer(Rp, (relative_VaR_95_1v), 0.05);
+SDTestsubtaskB2 = SerBer(Rp, (relative_VaR_99_1v), 0.01);
+SDTestsubtaskC = SerBer(Rp, (Histrelative_VaR_95_1v), 0.05);
+SDTestsubtaskC2 = SerBer(Rp, (Histrelative_VaR_99_1v), 0.01);
+SDTestsubtaskD= SerBer(Rp, (HW_relative_VaR_99_1v), 0.05);
+SDTestsubtaskD2 = SerBer(Rp, (HW_relative_VaR_99_1v), 0.01);
+
+% Display results for Subtask 1(f)
+disp('Results for Subtask 1(f): Serial Dependence Tests');
+disp(['Subtask B (95%): ' num2str(SDTestsubtaskB)]);
+disp(['Subtask B (99%): ' num2str(SDTestsubtaskB2)]);
+disp(['Subtask C (95%): ' num2str(SDTestsubtaskC)]);
+disp(['Subtask C (99%): ' num2str(SDTestsubtaskC2)]);
+disp(['Subtask D (95%): ' num2str(SDTestsubtaskD)]);
+disp(['Subtask D (99%): ' num2str(SDTestsubtaskD2)]);
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Task 2: Extreme Value Theory
@@ -100,14 +214,14 @@ end
 %% Subtask 2 (a): Estimating Parameters
 
 % Sorting the portfolio returns in ascending order
-sortedPortfolioReturns = sort(transpose(portfolio_returns), 'ascend');
+sortedPortfolioReturns = sort(transpose(Rp), 'ascend');
 
 % Calculating number of observations which fall in the 95th percentile
 n = 1646;
 nu = round(0.05 * n);
 
 % Calculating the threshold level, u (95th percentile of the loss)
-u = sortedPortfolioReturns(nu, 1);
+u = sortedPortfolioReturns(1, nu);
 
 % Calculating y for the 81 biggest losses in the distribution
 y = sortedPortfolioReturns(1:nu-1) - u;
@@ -123,12 +237,31 @@ params = [beta; ksi];
 % Optimizing the parameters
 paramsOptimized = fmincon(f, params);
 
-% Calculating VaR with 95% confidence level based on the optimized params
+% Calculating VaR with 99% confidence level based on the optimized params
 c = 0.99;
 VaR_EVT =   u+(paramsOptimized(1)/paramsOptimized(2))*((n/(nu-1)*(1-c))^(-params(2))-1);
 
-fprintf('Optimized beta: %f\n', paramsOptimized(1,1));
-fprintf('Optimized ksi: %f\n', paramsOptimized(2,1));
+fprintf('EVT VaR: %f\n', VaR_EVT);
+fprintf('Threshold level, u: %f\n', u);
+fprintf('n, number of observations: %f\n', n);
+fprintf('nu, number of observations: %f\n', nu);
+fprintf('Optimized beta (paramsOptimized(1): %f\n', paramsOptimized(1,1));
+fprintf('Optimized ksi (paramsOptimized(2): %f\n', paramsOptimized(2,1));
+
+% Plotting the empirical density function of the losses
+figure;
+histogram(y, 'Normalization', 'pdf', 'EdgeColor', 'w');
+hold on;
+
+% Plotting the fitted normal distribution density function
+x = linspace(min(y), max(y), 1000);
+normal_pdf = normpdf(x, mean(y), std(y));
+plot(x, normal_pdf, 'r', 'LineWidth', 2);
+
+title('Empirical and Fitted Normal Distribution Density Functions');
+xlabel('Losses');
+ylabel('Density');
+legend('Empirical Density', 'Fitted Normal Distribution Density');
 
 %% Subtask 2 (b): Estimating Parameters for a Volatile Period (approx. 5 years of data)
 
@@ -137,8 +270,7 @@ fprintf('Optimized ksi: %f\n', paramsOptimized(2,1));
 dates = 1647;
 stocks = 15;
 
-prices = S(:, 2:end);
-pricesInOrder = flipud(prices); % Row 1 = first date, Row 1646 = today
+pricesInOrder = flipud(tradeClose); % Row 1 = first date, Row 1646 = today
 
 logReturns = zeros(dates-1, stocks);
 
@@ -204,11 +336,35 @@ params = [beta; ksi];
 
 % Optimizing the parameters
 paramsOptimizedWithHighestVolatility = fmincon(fWithHighestVolatility, params);
+c = 0.99;
+VaR_EVTx =   u+(paramsOptimizedWithHighestVolatility(1)/paramsOptimizedWithHighestVolatility(2))*((n/(nu-1)*(1-c))^(-params(2))-1);
 
+fprintf('EVT VaR with 5-year period with highest volatility: %f\n', VaR_EVTx);
+fprintf('Threshold level, u: %f\n', uWithHighestVolatility);
+fprintf('n, number of observations: %f\n', n);
+fprintf('nu, number of observations: %f\n', nWithHighestVolatility);
 fprintf('Optimized beta (5-year highest vol): %f\n', paramsOptimizedWithHighestVolatility(1,1));
 fprintf('Optimized ksi (5-year highest vol) %f\n', paramsOptimizedWithHighestVolatility(2,1));
 
+% Plotting the empirical density function of the losses
+figure;
+histogram(yWithHighestVolatility, 'Normalization', 'pdf', 'EdgeColor', 'w');
+hold on;
 
+% Plotting the fitted normal distribution density function
+x = linspace(min(yWithHighestVolatility), max(yWithHighestVolatility), 1000);
+normal_pdf = normpdf(x, mean(yWithHighestVolatility), std(yWithHighestVolatility));
+plot(x, normal_pdf, 'r', 'LineWidth', 2);
+
+title('Empirical and Fitted Normal Distribution Density Functions');
+xlabel('Losses');
+ylabel('Density');
+legend('Empirical Density', 'Fitted Normal Distribution Density');
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Task 3: Risk Factor Mapping
@@ -247,10 +403,53 @@ RhoMar22Call = Rho(SPX(1), 4700, 15.77, timeToMaturity_MarchContract, 0, annualR
 RhoMar22Put = Rho(SPX(1), 4600, 18.28, timeToMaturity_MarchContract, 0, annualRiskFreeRate, 'put');
 RhoApr22Call = Rho(SPX(1), 4750, 16.25, timeToMaturity_AprilContract, 0, annualRiskFreeRate, 'call');
 
+gradientMar22Call = [DeltaMar22Call VegaMar22Call RhoMar22Call];
+gradientMar22Put = [DeltaMar22Put VegaMar22Put RhoMar22Put];
+gradientApr22Call = [DeltaApr22Call VegaApr22Call RhoApr22Call];
 
-gradientMar22Call = [DeltaMar22Call, VegaMar22Call, RhoMar22Call];
-gradientMar22Put = [DeltaMar22Put, VegaMar22Put, RhoMar22Put];
-gradientApr22Call = [DeltaApr22Call, VegaApr22Call, RhoApr22Call];
+G = [gradientMar22Call; gradientMar22Put; gradientApr22Call];
+
+% Calculating returns for S&P500, changes in VIX and LIBOR
+returnsSPX = zeros(size(SPX, 1), 1);
+changeVIX = zeros(size(VIX, 1), 1);
+changeLIBOR = zeros(size(USD3MFSR, 1), 1);
+
+for i = 3426:-1:2
+    returnsSPX(i) = log( SPX(i) / SPX(i-1) );
+    changeVIX(i) = (VIX(i) / - VIX(i-1)) / 100;
+    changeLIBOR(i) = (USD3MFSR(i) - USD3MFSR(i-1)) / 100;
+end
+
+% Creating the covariance matrix to be used for
+lambda = [returnsSPX changeVIX changeLIBOR];
+C = cov(lambda);
+
+
+% Portfolio weights
+weightMar22Call = 10000;
+weightMar22Put = 10000;
+weightApr22Call = 20000;
+
+optionWeights = [weightMar22Call weightMar22Put weightApr22Call]';
+
+% Calculating the variance based on the variance-covariance method
+optionsVariance = optionWeights' * G' * C * G * optionWeights;
+
+optionsVaR = norminv(0.99) * sqrt(optionsVariance);
+
+% ***************
+% *             *
+% *    *****    *
+% *   *     *   *
+% *   * *  *  * *
+% *   *     *   *
+% *    *****    *
+% *             *
+% ***************
+
+
+
+
 
 
 % Function for Black-Scholes. 
@@ -299,18 +498,36 @@ end
 
 
 
+function res = FailureRateTest(Rp, relVaR, alpha, c)
+    n = size(Rp, 1);
+    lowerlimit = norminv(alpha/2);
+    upperlimit = norminv(1-(alpha/2));
+    count = 0;
+    for j = 1:(n-502)
+        count = count + (Rp(j) < - relVaR(j));
+    end
+    Z = (count-(n-501)*(1-c))/(sqrt((n-501)*(1-c)*(1-(1-c))));
+    res = (Z < lowerlimit || Z > upperlimit);
+end
 
+function res = SerBer(r, VaR, alpha)
+    n = size(r, 1);
+    z = chi2inv((1-alpha), 1);
+    nXY = zeros(2, 2);
+    prev = 0;
+    for j = 1:(n-501)
+       curr = (r(j) < - VaR(j));
+       nXY(prev+1, curr+1) = nXY(prev+1, curr+1) + 1;
+       prev = curr;
+    end
+    res = VL(nXY(1,1), nXY(1,2), nXY(2,1), nXY(2,2)) > z;
+end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+function res = VL(n00, n01, n10, n11)
+    pi = (n01 + n11) / (n00 + n01 + n10 + n11);
+    pi01 = n01 / (n00 + n01);
+    pi11 = n11 / (n10 + n11);
+    term1=-2*log(((1-pi)^(n00+n10)) * (pi^(n01+n11)));
+    term2=2*log((1-pi01)^(n00)*pi01^(n01)*(1-pi11)^(n10)*pi11^(n11));
+    res = term1 + term2;
+end
